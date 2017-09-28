@@ -85,13 +85,22 @@ public class LocalH264Activity extends Activity {
             new Thread() {
                 public void run() {
                     try {
-                        socket = new Socket("10.0.2.2", 8888);
+                        // 发送指令
+                        //socket = new Socket("10.0.2.2", 8888);
+                        socket = new Socket("122.152.213.73", 8888);
                         os = socket.getOutputStream();
-                        pkg = new Pkg(8, 4, 6);
+                        pkg = new Pkg(3, 4, 6);
                         os.write(pkg.toBytes());
                         os.flush();
+                        // 拿到服务器返回的数据
 
+                        // 先不管返回，先直接选择6
+                        pkg.cmd = 8;
+                        pkg.len = 4;
+                        pkg.choice = 6;
                         inputStream = socket.getInputStream();
+                        byte bufferTmp[] = new byte[16];
+                        is.read(bufferTmp); // 过滤掉流中的16个字节的头部
                         System.out.println("*************" + inputStream.available());
 
                         //mInputStream = new DataInputStream(is);
@@ -170,7 +179,9 @@ public class LocalH264Activity extends Activity {
         @Override
         public void run() {
             try {
-                decodeLoop();
+                while(true) {
+                    decodeLoop();
+                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -193,7 +204,7 @@ public class LocalH264Activity extends Activity {
                 e.printStackTrace();
             }
             int bytes_cnt = 0;
-            while (mStopFlag == false) {
+            while (!mStopFlag) {
                 bytes_cnt = streamBuffer.length;
                 if (bytes_cnt == 0) {
                     streamBuffer = dummyFrame;
@@ -248,38 +259,20 @@ public class LocalH264Activity extends Activity {
         int headLen = 12; // 头部字节长12
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte buffer_in[] = new byte[1412]; // 读进来的数据
-        byte bufferTmp[] = new byte[16];
-        is.read(bufferTmp);
+        //byte bufferTmp[] = new byte[16];
+        //is.read(bufferTmp);
         int count = 0;
         int len;
         while((len = is.read(buffer_in)) != -1) {
             count++;
             System.out.println("==========" + len + "  " + is.available());
             bos.write(buffer_in, headLen, len - headLen);
-            if(count == 576)
+            if(count == 200)
                 break;
         }
         System.out.println("++++++++" + len);
         bos.flush();
         return bos.toByteArray();
-        /* //old code
-        int len;
-        int size = 1024;
-        byte[] buf;
-        if (is instanceof ByteArrayInputStream) {
-            size = is.available();
-            buf = new byte[size];
-            len = is.read(buf, 0, size);
-        } else {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            buf = new byte[size];
-            while ((len = is.read(buf, 0, size)) != -1)
-                bos.write(buf, 0, len);
-            buf = bos.toByteArray();
-        }
-        System.out.println("=================" + buf.length);
-        return buf;
-        */
     }
 
     int KMPMatch(byte[] pattern, byte[] bytes, int start, int remain) {
