@@ -98,6 +98,9 @@ public class LocalH264Activity extends Activity {
                         pkg.cmd = 8;
                         pkg.len = 4;
                         pkg.choice = 6;
+                        os.write(pkg.toBytes());
+                        os.flush();
+                        
                         inputStream = socket.getInputStream();
                         byte bufferTmp[] = new byte[16];
                         is.read(bufferTmp); // 过滤掉流中的16个字节的头部
