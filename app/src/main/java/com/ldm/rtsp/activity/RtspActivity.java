@@ -87,7 +87,7 @@ public class RtspActivity extends AppCompatActivity implements SurfaceHolder.Cal
             @Override
             public void run() {
                 try {
-                    getRtspStream();
+                    getRtspStream();// 运行这个函数，开始调用client.doS tart()，开始建立连接
                     //调用播放开关
                     client.play();
                 } catch (Exception e) {

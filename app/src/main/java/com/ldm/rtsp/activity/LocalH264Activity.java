@@ -16,6 +16,7 @@ import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -45,7 +46,6 @@ public class LocalH264Activity extends Activity {
     private Socket socket;
     private OutputStream os;
     private InputStream is;
-    Pkg pkg;
     boolean local = false;
 
     @Override
@@ -85,28 +85,31 @@ public class LocalH264Activity extends Activity {
             new Thread() {
                 public void run() {
                     try {
-                        // 发送指令
+                        // 建立连接
                         //socket = new Socket("10.0.2.2", 8888);
                         socket = new Socket("122.152.213.73", 8888);
                         os = socket.getOutputStream();
-                        pkg = new Pkg(3, 4, 6);
-                        os.write(pkg.toBytes());
+                        // 发送握手命令
+                        Pkg_Client_Req pkg_client_req = new Pkg_Client_Req(3, 4, 1, 1);
+                        os.write(pkg_client_req.toBytes());
                         os.flush();
                         // 拿到服务器返回的数据
-
-                        // 先不管返回，先直接选择6
-                        pkg.cmd = 8;
-                        pkg.len = 4;
-                        pkg.choice = 6;
-                        os.write(pkg.toBytes());
-                        os.flush();
-                        
                         inputStream = socket.getInputStream();
-                        byte bufferTmp[] = new byte[16];
-                        is.read(bufferTmp); // 过滤掉流中的16个字节的头部
-                        System.out.println("*************" + inputStream.available());
+                        byte buff[] = new byte[48];
+                        int len = inputStream.read(buff);
+                        byte[] fdArray = new byte[4];
+                        fdArray[0] = buff[16];
+                        fdArray[1] = buff[17];
+                        fdArray[2] = buff[18];
+                        fdArray[3] = buff[19];
+                        int fd = ByteArrayToInt(fdArray);
 
-                        //mInputStream = new DataInputStream(is);
+                        // 发送fd指令
+                        Pkg_Client_Req chooseServerReq = new Pkg_Client_Req(8, 4, fd, fd);
+                        os.write(chooseServerReq.toBytes());
+
+                        // 接下来就是接收数据了
+
                     } catch (Exception e) {
                         e.printStackTrace();
                     } finally {
@@ -182,9 +185,7 @@ public class LocalH264Activity extends Activity {
         @Override
         public void run() {
             try {
-                while(true) {
-                    decodeLoop();
-                }
+                decodeLoop();
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -258,23 +259,38 @@ public class LocalH264Activity extends Activity {
         }
     }
 
-    public static byte[] getBytes(InputStream is) throws IOException {
-        int headLen = 12; // 头部字节长12
+    public byte[] getBytes(InputStream is) throws IOException {
+        System.out.println("Get in getBytes function...");
+        // 先过滤掉16个字节的响应包
+        byte[] useless = new byte[16];
+        is.read(useless);
+        byte[] dataHead = new byte[12];
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        byte buffer_in[] = new byte[1412]; // 读进来的数据
-        //byte bufferTmp[] = new byte[16];
-        //is.read(bufferTmp);
-        int count = 0;
         int len;
-        while((len = is.read(buffer_in)) != -1) {
+        int count = 0;
+        File file = new File("/sdcard/wyz.h264");
+        FileOutputStream fos = new FileOutputStream(file);
+
+        while((len = is.read(dataHead)) != -1) {
             count++;
-            System.out.println("==========" + len + "  " + is.available());
-            bos.write(buffer_in, headLen, len - headLen);
-            if(count == 200)
+            System.out.println("Loop index: " + count + "------------------");
+            byte[] dataLenArray = new byte[4];
+            System.arraycopy(dataHead, 4, dataLenArray, 0, 4);
+            int dataLen = ByteArrayToInt(dataLenArray);
+            System.out.println("Video data len: " + dataLen);
+            byte[] videoData = new byte[dataLen];
+            int readLen = 0;
+            while(readLen < dataLen) {
+                readLen += is.read(videoData, readLen, dataLen - readLen);
+            }
+            System.out.println("Alread read: " + readLen);
+            // 先写个文件出来
+            //fos.write(videoData);
+            bos.write(videoData, 0, dataLen);
+            if(count == 100000)
                 break;
         }
-        System.out.println("++++++++" + len);
-        bos.flush();
+        inputStream.close();
         return bos.toByteArray();
     }
 
@@ -318,4 +334,7 @@ public class LocalH264Activity extends Activity {
         return lsp;
     }
 
+    int ByteArrayToInt(byte[] b) {
+        return (b[0] & 0xFF) | ((b[1] & 0xFF) << 8) | ((b[2] & 0xFF) << 16) | ((b[3] << 24 & 0xFF) << 24);
+    }
 }

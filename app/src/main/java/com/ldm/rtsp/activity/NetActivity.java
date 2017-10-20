@@ -98,6 +98,11 @@ class PKG_CMD_TYPE {
     public static final int PKG_CHOOSE_SERVER_REQ = 8;
     public static final int PKT_CHOOSE_SERVER_RES = 9;
     public static final int PKG_START_SEND_DATA_NTF = 10;
+    public static final int PKG_REMOTE_TO_RASPI_NTF = 11;
+    public static final int PKT_RESTART_CLIENT_NTF = 12;
+}
+class RestartClientNtf {
+    int Reserve;
 }
 class RegisterServerReq {
     CLIENT_TYPE clientType;
@@ -148,6 +153,30 @@ class Body {
     ChooseServerReq chooseServerReq;
     ChooseServerRes chooseServerRes;
     StartSendDataNtf startSendDataNtf;
+}
+
+class Pkg_Client_Req {
+    int cmd;
+    int len;
+    int fd;
+    int ctype;
+    public Pkg_Client_Req(int cmd, int len, int fd, int ctype) {
+        this.cmd = cmd;
+        this.len = len;
+        this.fd = fd;
+        this.ctype = ctype;
+    }
+    public byte[] toBytes() {
+        byte[] rst = new byte[16];
+        for(int i = 0; i < 16; i++) {
+            rst[i] = 0;
+        }
+        rst[0] = (byte)this.cmd;
+        rst[4] = (byte)this.len;
+        rst[8] = (byte)fd; // fd
+        rst[12] = (byte)ctype; // remote
+        return rst;
+    }
 }
 
 class Pkg {
