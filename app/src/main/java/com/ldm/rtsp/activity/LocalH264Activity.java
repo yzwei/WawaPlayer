@@ -22,6 +22,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 
 /**
@@ -47,6 +49,8 @@ public class LocalH264Activity extends Activity {
     private OutputStream os;
     private InputStream is;
     boolean local = false;
+
+    private BlockingQueue<byte> video_data_queue = new ArrayBlockingQueue<byte>(); // 用来存放视频数据，网络不断往里写，解码器不断往外读
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -107,9 +111,6 @@ public class LocalH264Activity extends Activity {
                         // 发送fd指令
                         Pkg_Client_Req chooseServerReq = new Pkg_Client_Req(4, 4, 0, fd);
                         os.write(chooseServerReq.toBytes());
-
-                        // 接下来就是接收数据了
-
                     } catch (Exception e) {
                         e.printStackTrace();
                     } finally {
@@ -265,42 +266,34 @@ public class LocalH264Activity extends Activity {
         byte[] useless = new byte[16];
         is.read(useless);
 
-        //while(true) {} // 不间断播放？不知道这么写特么的行不行...fuck
-
-
         byte[] dataHead = new byte[12];
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        int len;
+        int len = 0;
         int count = 0;
-        File file = new File("/sdcard/wyz.h264");
-        FileOutputStream fos = new FileOutputStream(file);
 
-        while((len = is.read(dataHead)) != -1) {
-            count++;
-            System.out.println("Loop index: " + count + "------------------");
-            byte[] dataLenArray = new byte[4];
-            System.arraycopy(dataHead, 4, dataLenArray, 0, 4);
-            System.out.print("dataLenArray: ");
-            for(int i = 0; i < 4; i++) {
-                System.out.print(dataLenArray[i] + " ");
+        while(len < 12) {
+            len += is.read(dataHead, len, 12 - len);
+            if(len == 12)
+            {
+                count++;
+                len = 0;
+                byte[] dataLenArray = new byte[4];
+                System.arraycopy(dataHead, 4, dataLenArray, 0, 4);
+
+                int dataLen = ByteArrayToInt(dataLenArray);
+                byte[] videoData = new byte[dataLen];
+                int readLen = 0;
+                while(readLen < dataLen) {
+                    readLen += is.read(videoData, readLen, dataLen - readLen);
+                }
+                bos.write(videoData, 0, dataLen);
+                if(count == 5000)
+                    break;
             }
-            System.out.println("");
-            if(dataLenArray[0] == 3 && dataLenArray[1] == 0) {
-                System.out.println("Here exception#############################");
+            else
+            {
+                continue;
             }
-            int dataLen = ByteArrayToInt(dataLenArray);
-            System.out.println("Video data len: " + dataLen);
-            byte[] videoData = new byte[dataLen];
-            int readLen = 0;
-            while(readLen < dataLen) {
-                readLen += is.read(videoData, readLen, dataLen - readLen);
-            }
-            System.out.println("Alread read: " + readLen);
-            // 先写个文件出来
-            //fos.write(videoData);
-            bos.write(videoData, 0, dataLen);
-            if(count == 1000)
-                break;
         }
         inputStream.close();
         return bos.toByteArray();
