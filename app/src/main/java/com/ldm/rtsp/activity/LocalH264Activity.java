@@ -50,8 +50,6 @@ public class LocalH264Activity extends Activity {
     private InputStream is;
     boolean local = false;
 
-    private BlockingQueue<byte> video_data_queue = new ArrayBlockingQueue<byte>(); // 用来存放视频数据，网络不断往里写，解码器不断往外读
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -261,7 +259,6 @@ public class LocalH264Activity extends Activity {
     }
 
     public byte[] getBytes(InputStream is) throws IOException {
-        System.out.println("Get in getBytes function...");
         // 先过滤掉16个字节的响应包
         byte[] useless = new byte[16];
         is.read(useless);
@@ -287,7 +284,7 @@ public class LocalH264Activity extends Activity {
                     readLen += is.read(videoData, readLen, dataLen - readLen);
                 }
                 bos.write(videoData, 0, dataLen);
-                if(count == 5000)
+                if(count == 500)
                     break;
             }
             else
