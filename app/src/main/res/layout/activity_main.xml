@@ -6,30 +6,13 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-    <EditText
-            android:id="@+id/rtsp_edt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="请输入RTSP视频流URL"
-            android:textSize="16sp"
-            android:text=""
-            android:layout_marginTop="20dp"/>
-
     <Button
-            android:id="@+id/rtsp_btn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="16sp"
-            android:layout_marginTop="20dp"
-            android:text="RTSP实时视频"/>
-
-    <Button
-            android:id="@+id/local_btn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="16sp"
-            android:layout_marginTop="20dp"
-            android:text="H264本地文件播放"/>
+        android:id="@+id/local_btn"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="20dp"
+        android:text="H264本地文件播放"
+        android:textSize="16sp" />
 
 </LinearLayout>
 

@@ -90,7 +90,7 @@ public class LocalH264Activity extends Activity {
                         socket = new Socket("122.152.213.73", 8888);
                         os = socket.getOutputStream();
                         // 发送握手命令
-                        Pkg_Client_Req pkg_client_req = new Pkg_Client_Req(3, 4, 1, 1);
+                        Pkg_Client_Req pkg_client_req = new Pkg_Client_Req(1, 4, 0, 1);
                         os.write(pkg_client_req.toBytes());
                         os.flush();
                         // 拿到服务器返回的数据
@@ -105,7 +105,7 @@ public class LocalH264Activity extends Activity {
                         int fd = ByteArrayToInt(fdArray);
 
                         // 发送fd指令
-                        Pkg_Client_Req chooseServerReq = new Pkg_Client_Req(8, 4, fd, fd);
+                        Pkg_Client_Req chooseServerReq = new Pkg_Client_Req(4, 4, 0, fd);
                         os.write(chooseServerReq.toBytes());
 
                         // 接下来就是接收数据了
@@ -264,6 +264,10 @@ public class LocalH264Activity extends Activity {
         // 先过滤掉16个字节的响应包
         byte[] useless = new byte[16];
         is.read(useless);
+
+        //while(true) {} // 不间断播放？不知道这么写特么的行不行...fuck
+
+
         byte[] dataHead = new byte[12];
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         int len;
@@ -276,6 +280,14 @@ public class LocalH264Activity extends Activity {
             System.out.println("Loop index: " + count + "------------------");
             byte[] dataLenArray = new byte[4];
             System.arraycopy(dataHead, 4, dataLenArray, 0, 4);
+            System.out.print("dataLenArray: ");
+            for(int i = 0; i < 4; i++) {
+                System.out.print(dataLenArray[i] + " ");
+            }
+            System.out.println("");
+            if(dataLenArray[0] == 3 && dataLenArray[1] == 0) {
+                System.out.println("Here exception#############################");
+            }
             int dataLen = ByteArrayToInt(dataLenArray);
             System.out.println("Video data len: " + dataLen);
             byte[] videoData = new byte[dataLen];
@@ -287,7 +299,7 @@ public class LocalH264Activity extends Activity {
             // 先写个文件出来
             //fos.write(videoData);
             bos.write(videoData, 0, dataLen);
-            if(count == 100000)
+            if(count == 1000)
                 break;
         }
         inputStream.close();
