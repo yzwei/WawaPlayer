@@ -7,21 +7,20 @@ import android.os.Bundle;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.WindowManager;
-import android.widget.Toast;
 
 import com.ldm.rtsp.R;
 
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.DataInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
@@ -43,12 +42,13 @@ public class LocalH264Activity extends Activity {
     private static final int VIDEO_HEIGHT = 240;
     private int FrameRate = 15;
     private Boolean UseSPSandPPS = false;
-    private String filePath = "/sdcard/Movies" + "/" + FileName;
 
     private Socket socket;
     private OutputStream os;
     private InputStream is;
-    boolean local = false;
+
+    // 用来存放视频数据，网络不断往里写，解码器不断往外读
+    private BlockingQueue<byte[]> videoDataQueue = new ArrayBlockingQueue<>(10000);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,69 +58,53 @@ public class LocalH264Activity extends Activity {
         setContentView(R.layout.activity_rtsp);
         mSurface = (SurfaceView) findViewById(R.id.surfaceview);
 
-        if(local) {
-            /**
-             *  读取本地文件
-             */
-            File f = new File(filePath);
-            if (null == f || !f.exists() || f.length() == 0) {
-                Toast.makeText(this, "视频文件不存在", Toast.LENGTH_LONG).show();
-                return;
-            }
-            try {
-                //获取文件输入流
-                mInputStream = new DataInputStream(new FileInputStream(new File(filePath)));
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
+        /**
+         * 开一个线程读取网络流
+         */
+        new Thread() {
+            public void run() {
                 try {
-                    if (null != mInputStream) {
-                        mInputStream.close();
+                    System.out.println("Thread reading from network: " + this.getName());
+                    // 建立连接
+                    //socket = new Socket("10.0.2.2", 8888);
+                    socket = new Socket("122.152.213.73", 8888);
+                    os = socket.getOutputStream();
+                    // 发送握手命令
+                    Pkg_Client_Req pkg_client_req = new Pkg_Client_Req(1, 4, 0, 1);
+                    os.write(pkg_client_req.toBytes());
+                    os.flush();
+                    // 拿到服务器返回的数据
+                    inputStream = socket.getInputStream();
+                    byte buff[] = new byte[48];
+                    int len = inputStream.read(buff);
+                    byte[] fdArray = new byte[4];
+                    fdArray[0] = buff[16];
+                    fdArray[1] = buff[17];
+                    fdArray[2] = buff[18];
+                    fdArray[3] = buff[19];
+                    int fd = ByteArrayToInt(fdArray);
+
+                    // 发送fd指令
+                    Pkg_Client_Req chooseServerReq = new Pkg_Client_Req(4, 4, 0, fd);
+                    os.write(chooseServerReq.toBytes());
+                    // 向videoDataQueue中放入视频数据
+                    try {
+                        getBytes(inputStream);
+                    } catch (IOException e) {
+                        e.printStackTrace();
                     }
-                } catch (IOException e1) {
-                    e1.printStackTrace();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        //os.close();
+                    } catch (Exception ee) {
+                        ee.printStackTrace();
+                    }
                 }
             }
-        } else {
-            /**
-             * 读取网络流
-             */
-            new Thread() {
-                public void run() {
-                    try {
-                        // 建立连接
-                        //socket = new Socket("10.0.2.2", 8888);
-                        socket = new Socket("122.152.213.73", 8888);
-                        os = socket.getOutputStream();
-                        // 发送握手命令
-                        Pkg_Client_Req pkg_client_req = new Pkg_Client_Req(1, 4, 0, 1);
-                        os.write(pkg_client_req.toBytes());
-                        os.flush();
-                        // 拿到服务器返回的数据
-                        inputStream = socket.getInputStream();
-                        byte buff[] = new byte[48];
-                        int len = inputStream.read(buff);
-                        byte[] fdArray = new byte[4];
-                        fdArray[0] = buff[16];
-                        fdArray[1] = buff[17];
-                        fdArray[2] = buff[18];
-                        fdArray[3] = buff[19];
-                        int fd = ByteArrayToInt(fdArray);
+        }.start();
 
-                        // 发送fd指令
-                        Pkg_Client_Req chooseServerReq = new Pkg_Client_Req(4, 4, 0, fd);
-                        os.write(chooseServerReq.toBytes());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    } finally {
-                        try {
-                            //os.close();
-                        } catch (Exception ee) {
-                            ee.printStackTrace();
-                        }
-                    }
-                }
-            }.start();
-        }
         mSurfaceHolder = mSurface.getHolder();
         mSurfaceHolder.addCallback(new SurfaceHolder.Callback() {
             @Override
@@ -133,7 +117,6 @@ public class LocalH264Activity extends Activity {
                     e.printStackTrace();
                 }
                 //初始化编码器
-                //final MediaFormat mediaformat = MediaFormat.createVideoFormat("video/avc", VIDEO_WIDTH, VIDEO_HEIGHT);
                 MediaFormat mediaformat = MediaFormat.createVideoFormat("video/avc", VIDEO_WIDTH, VIDEO_HEIGHT);
                 //获取h264中的pps及sps数据
                 if (UseSPSandPPS) {
@@ -144,13 +127,12 @@ public class LocalH264Activity extends Activity {
                 }
                 //设置帧率
                 mediaformat.setInteger(MediaFormat.KEY_FRAME_RATE, FrameRate);
-                //mediaformat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
                 //https://developer.android.com/reference/android/media/MediaFormat.html#KEY_MAX_INPUT_SIZE
                 //设置配置参数，参数介绍 ：
                 // format	如果为解码器，此处表示输入数据的格式；如果为编码器，此处表示输出数据的格式。
-                //surface	指定一个surface，可用作decode的输出渲染。
-                //crypto	如果需要给媒体数据加密，此处指定一个crypto类.
-                //   flags	如果正在配置的对象是用作编码器，此处加上CONFIGURE_FLAG_ENCODE 标签。
+                // surface	指定一个surface，可用作decode的输出渲染。
+                // crypto	如果需要给媒体数据加密，此处指定一个crypto类.
+                // flags	如果正在配置的对象是用作编码器，此处加上CONFIGURE_FLAG_ENCODE 标签。
                 mCodec.configure(mediaformat, holder.getSurface(), null, 0);
                 startDecodingThread();
             }
@@ -173,6 +155,7 @@ public class LocalH264Activity extends Activity {
         mCodec.start();
         mDecodeThread = new Thread(new decodeThread());
         mDecodeThread.start();
+        System.out.println("Thread decoding data: " + mDecodeThread.getName());
     }
 
     /**
@@ -190,7 +173,7 @@ public class LocalH264Activity extends Activity {
             }
         }
 
-        private void decodeLoop() {
+        private void decodeLoop() throws IOException {
             //存放目标文件的数据
             ByteBuffer[] inputBuffers = mCodec.getInputBuffers();
             //解码后的数据，包含每一个buffer的元数据信息，例如偏差，在相关解码器中有效的数据大小
@@ -200,41 +183,124 @@ public class LocalH264Activity extends Activity {
             byte[] marker0 = new byte[]{0, 0, 0, 1};
             byte[] dummyFrame = new byte[]{0x00, 0x00, 0x01, 0x20};
             byte[] streamBuffer = null;
-            try {
-                //streamBuffer = getBytes(mInputStream);
-                streamBuffer = getBytes(inputStream);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+
+            // 写一个文件出来跟原始数据对比
+            //File videoFile = new File("/sdcard/wyz1.h264");
+            //FileOutputStream fos = new FileOutputStream(videoFile);
             int bytes_cnt = 0;
+            int cnt = 0;
+            ArrayList<Byte> frameBytes = new ArrayList<Byte>();
             while (!mStopFlag) {
+                // 如果视频数据队列不为空，则取出来
+                try {
+                    if (!videoDataQueue.isEmpty()) {
+                        streamBuffer = videoDataQueue.take();
+                        System.out.println("Dequeue videoDataQueue -- count:" + cnt++);
+                    } else {
+                        continue;
+                    }
+                } catch(InterruptedException e) {
+                    e.printStackTrace();
+                }
+
                 bytes_cnt = streamBuffer.length;
+                // 写文件的数据
+                //byte[] byteForFile = new byte[bytes_cnt];
+                //System.arraycopy(streamBuffer, 0, byteForFile, 0, bytes_cnt);
+                //fos.write(byteForFile);
+
                 if (bytes_cnt == 0) {
                     streamBuffer = dummyFrame;
                 }
 
                 int startIndex = 0;
                 int remaining = bytes_cnt;
+                int lastNextFrameStart = -1;
                 while (true) {
                     if (remaining == 0 || startIndex >= remaining) {
                         break;
                     }
-                    int nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
-                    if (nextFrameStart == -1) {
-                        nextFrameStart = remaining;
-                    } else {
-                    }
+                    //int nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
 
-                    int inIndex = mCodec.dequeueInputBuffer(timeoutUs);
-                    if (inIndex >= 0) {
-                        ByteBuffer byteBuffer = inputBuffers[inIndex];
-                        byteBuffer.clear();
-                        byteBuffer.put(streamBuffer, startIndex, nextFrameStart - startIndex);
-                        //在给指定Index的inputbuffer[]填充数据后，调用这个函数把数据传给解码器
-                        mCodec.queueInputBuffer(inIndex, 0, nextFrameStart - startIndex, 0, 0);
-                        startIndex = nextFrameStart;
+                    int nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex, remaining);
+                    if(nextFrameStart == lastNextFrameStart) { // 如果还是刚才那个，就往后找一个
+                        nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
+                    }
+                    if(0 == nextFrameStart) {
+                        if(frameBytes.size() != 0) { // 把已经有的数据放到mediaCodec的inputBuffer中去
+                            int inIndex = mCodec.dequeueInputBuffer(timeoutUs);
+                            if(inIndex >= 0) {
+                                ByteBuffer byteBuffer = inputBuffers[inIndex];
+                                byteBuffer.clear();
+                                byte[] tmp = new byte[frameBytes.size()];
+                                //System.arraycopy(frameBytes.toArray(), 0, tmp, 0, frameBytes.size());
+                                for(int i = 0; i < frameBytes.size(); i++) {
+                                    tmp[i] = (byte)frameBytes.toArray()[i];
+                                }
+                                byteBuffer.put(tmp, 0, frameBytes.size());
+                                mCodec.queueInputBuffer(inIndex, 0, tmp.length, 0, 0);
+                                startIndex = nextFrameStart;
+                                frameBytes.clear();
+                            } else { continue; }
+                        } else {// frameBytes.size() == 0
+                            nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
+                            lastNextFrameStart = nextFrameStart;
+                            if(-1 != nextFrameStart) { // 找到了标志位
+                                Byte[] partialBytes = new Byte[nextFrameStart - startIndex];
+                                for(int i = 0; i < nextFrameStart - startIndex; i++) {
+                                    partialBytes[i] = Byte.valueOf(streamBuffer[i]);
+                                }
+                                frameBytes.addAll(Arrays.asList(partialBytes));
+
+                                int inIndex = mCodec.dequeueInputBuffer(timeoutUs);
+                                if(inIndex >= 0) {
+                                    ByteBuffer byteBuffer = inputBuffers[inIndex];
+                                    byteBuffer.clear();
+                                    byte[] tmp = new byte[frameBytes.size()];
+                                    for(int i = 0; i < frameBytes.size(); i++) {
+                                        tmp[i] = (byte)frameBytes.toArray()[i];
+                                    }
+                                    byteBuffer.put(tmp, 0, frameBytes.size());
+                                    mCodec.queueInputBuffer(inIndex, 0, tmp.length, 0, 0);
+                                    startIndex = nextFrameStart;
+                                    frameBytes.clear();
+                                } else { continue; }
+                            } else if(-1 == nextFrameStart) { // 剩下的数据中没有找到标志位，需要将没有标志位对应的数据暂存起来
+                                Byte[] partialBytes = new Byte[remaining - startIndex];
+                                for(int i = 0; i < remaining - startIndex; i++) {
+                                    partialBytes[i] = Byte.valueOf(streamBuffer[i + startIndex]);
+                                }
+                                frameBytes.addAll(Arrays.asList(partialBytes));
+                                startIndex = remaining;
+                            }
+                        }
+                    } else if(-1 == nextFrameStart){
+                        Byte[] partialBytes = new Byte[remaining - startIndex];
+                        for(int i = 0; i < remaining - startIndex; i++) {
+                            partialBytes[i] = Byte.valueOf(streamBuffer[i + startIndex]);
+                        }
+                        frameBytes.addAll(Arrays.asList(partialBytes));
+                        startIndex = remaining;
                     } else {
-                        continue;
+                        Byte[] partialBytes = new Byte[nextFrameStart - startIndex];
+                        for(int i = 0; i < nextFrameStart - startIndex; i++) {
+                            partialBytes[i] = Byte.valueOf(streamBuffer[i]);
+                        }
+                        frameBytes.addAll(Arrays.asList(partialBytes));
+
+                        int inIndex = mCodec.dequeueInputBuffer(timeoutUs);
+                        if(inIndex >= 0) {
+                            ByteBuffer byteBuffer = inputBuffers[inIndex];
+                            byteBuffer.clear();
+                            byte[] tmp = new byte[frameBytes.size()];
+                            for(int i = 0; i < frameBytes.size(); i++) {
+                                tmp[i] = (byte)frameBytes.toArray()[i];
+                            }
+                            byteBuffer.put(tmp, 0, frameBytes.size());
+                            mCodec.queueInputBuffer(inIndex, 0, tmp.length, 0, 0);
+                            startIndex = nextFrameStart;
+                            frameBytes.clear();
+                        } else { continue; }
                     }
 
                     int outIndex = mCodec.dequeueOutputBuffer(info, timeoutUs);
@@ -253,12 +319,12 @@ public class LocalH264Activity extends Activity {
                     } else {
                     }
                 }
-                mStopFlag = true;
+                //mStopFlag = true;
             }
         }
     }
 
-    public byte[] getBytes(InputStream is) throws IOException {
+    public void getBytes(InputStream is) throws IOException {
         // 先过滤掉16个字节的响应包
         byte[] useless = new byte[16];
         is.read(useless);
@@ -267,6 +333,9 @@ public class LocalH264Activity extends Activity {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         int len = 0;
         int count = 0;
+
+        //File videoFile = new File("/sdcard/wyz.h264");
+        //FileOutputStream fos = new FileOutputStream(videoFile);
 
         while(len < 12) {
             len += is.read(dataHead, len, 12 - len);
@@ -283,17 +352,25 @@ public class LocalH264Activity extends Activity {
                 while(readLen < dataLen) {
                     readLen += is.read(videoData, readLen, dataLen - readLen);
                 }
-                bos.write(videoData, 0, dataLen);
-                if(count == 500)
-                    break;
+
+                //byte[] byteForFile = new byte[dataLen];
+                //System.arraycopy(videoData, 0, byteForFile, 0, dataLen);
+                //fos.write(byteForFile);
+
+                try {
+                    videoDataQueue.put(videoData);
+                } catch(InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
             else
             {
                 continue;
             }
+            System.out.println("Enqueue videoDataQueue -- count:" + count);
+            if(count == 1000)
+                break;
         }
-        inputStream.close();
-        return bos.toByteArray();
     }
 
     int KMPMatch(byte[] pattern, byte[] bytes, int start, int remain) {
