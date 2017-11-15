@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
+import org.apache.commons.lang3.ArrayUtils;
 
 /**
  * @description 播放本地H264视频文件
@@ -190,12 +191,13 @@ public class LocalH264Activity extends Activity {
             int bytes_cnt = 0;
             int cnt = 0;
             ArrayList<Byte> frameBytes = new ArrayList<Byte>();
+            double currentTime = 0L;
             while (!mStopFlag) {
                 // 如果视频数据队列不为空，则取出来
                 try {
                     if (!videoDataQueue.isEmpty()) {
+                        currentTime = System.currentTimeMillis();
                         streamBuffer = videoDataQueue.take();
-                        System.out.println("Dequeue videoDataQueue -- count:" + cnt++);
                     } else {
                         continue;
                     }
@@ -220,8 +222,6 @@ public class LocalH264Activity extends Activity {
                     if (remaining == 0 || startIndex >= remaining) {
                         break;
                     }
-                    //int nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
-
                     int nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex, remaining);
                     if(nextFrameStart == lastNextFrameStart) { // 如果还是刚才那个，就往后找一个
                         nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
@@ -232,11 +232,8 @@ public class LocalH264Activity extends Activity {
                             if(inIndex >= 0) {
                                 ByteBuffer byteBuffer = inputBuffers[inIndex];
                                 byteBuffer.clear();
-                                byte[] tmp = new byte[frameBytes.size()];
-                                //System.arraycopy(frameBytes.toArray(), 0, tmp, 0, frameBytes.size());
-                                for(int i = 0; i < frameBytes.size(); i++) {
-                                    tmp[i] = (byte)frameBytes.toArray()[i];
-                                }
+                                Byte[] nouse = new Byte[frameBytes.size()];
+                                byte[] tmp = ArrayUtils.toPrimitive(frameBytes.toArray(nouse));
                                 byteBuffer.put(tmp, 0, frameBytes.size());
                                 mCodec.queueInputBuffer(inIndex, 0, tmp.length, 0, 0);
                                 startIndex = nextFrameStart;
@@ -244,7 +241,6 @@ public class LocalH264Activity extends Activity {
                             } else { continue; }
                         } else {// frameBytes.size() == 0
                             nextFrameStart = KMPMatch(marker0, streamBuffer, startIndex + 2, remaining);
-                            lastNextFrameStart = nextFrameStart;
                             if(-1 != nextFrameStart) { // 找到了标志位
                                 Byte[] partialBytes = new Byte[nextFrameStart - startIndex];
                                 for(int i = 0; i < nextFrameStart - startIndex; i++) {
@@ -256,13 +252,12 @@ public class LocalH264Activity extends Activity {
                                 if(inIndex >= 0) {
                                     ByteBuffer byteBuffer = inputBuffers[inIndex];
                                     byteBuffer.clear();
-                                    byte[] tmp = new byte[frameBytes.size()];
-                                    for(int i = 0; i < frameBytes.size(); i++) {
-                                        tmp[i] = (byte)frameBytes.toArray()[i];
-                                    }
+                                    Byte[] nouse = new Byte[frameBytes.size()];
+                                    byte[] tmp = ArrayUtils.toPrimitive(frameBytes.toArray(nouse));
                                     byteBuffer.put(tmp, 0, frameBytes.size());
                                     mCodec.queueInputBuffer(inIndex, 0, tmp.length, 0, 0);
                                     startIndex = nextFrameStart;
+                                    lastNextFrameStart = nextFrameStart;
                                     frameBytes.clear();
                                 } else { continue; }
                             } else if(-1 == nextFrameStart) { // 剩下的数据中没有找到标志位，需要将没有标志位对应的数据暂存起来
@@ -292,17 +287,16 @@ public class LocalH264Activity extends Activity {
                         if(inIndex >= 0) {
                             ByteBuffer byteBuffer = inputBuffers[inIndex];
                             byteBuffer.clear();
-                            byte[] tmp = new byte[frameBytes.size()];
-                            for(int i = 0; i < frameBytes.size(); i++) {
-                                tmp[i] = (byte)frameBytes.toArray()[i];
-                            }
+                            Byte[] nouse = new Byte[frameBytes.size()];
+                            byte[] tmp = ArrayUtils.toPrimitive(frameBytes.toArray(nouse));
                             byteBuffer.put(tmp, 0, frameBytes.size());
                             mCodec.queueInputBuffer(inIndex, 0, tmp.length, 0, 0);
                             startIndex = nextFrameStart;
+                            lastNextFrameStart = nextFrameStart;
                             frameBytes.clear();
                         } else { continue; }
                     }
-
+                    System.out.println("Time elapsed: " + (System.currentTimeMillis() - currentTime));
                     int outIndex = mCodec.dequeueOutputBuffer(info, timeoutUs);
                     if (outIndex >= 0) {
                         //帧控制是不在这种情况下工作，因为没有PTS H264是可用的
@@ -367,9 +361,6 @@ public class LocalH264Activity extends Activity {
             {
                 continue;
             }
-            System.out.println("Enqueue videoDataQueue -- count:" + count);
-            if(count == 1000)
-                break;
         }
     }
 
